@@ -1,0 +1,395 @@
+I extracted the full Java source code for your Helpdesk Application from the PDF. Here it is, ready to copy and use:
+
+package deepan;
+
+import java.time.LocalDateTime;
+import java.util.*;
+
+// User class
+class User {
+    protected String id;
+    protected String name;
+    protected String email;
+    protected String role; // "Customer" or "Agent"
+    protected int ticketsHandled;
+
+    public User(String id, String name, String email, String role) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.role = role;
+        this.ticketsHandled = 0;
+    }
+
+    public String getId() { return id; }
+    public String getName() { return name; }
+    public String getEmail() { return email; }
+    public String getRole() { return role; }
+    public int getTicketsHandled() { return ticketsHandled; }
+
+    public void setName(String name) { this.name = name; }
+    public void setEmail(String email) { this.email = email; }
+    public void incrementHandled() { ticketsHandled++; }
+
+    public void display() {
+        System.out.println("User: " + id + " | " + name + " | " + role);
+    }
+}
+
+// Agent extends User
+class Agent extends User {
+    private int maxOpenTickets;
+    private List<Ticket> assigned;
+
+    public Agent(String id, String name, String email, int maxOpenTickets) {
+        super(id, name, email, "Agent");
+        this.maxOpenTickets = maxOpenTickets;
+        this.assigned = new ArrayList<>();
+    }
+
+    public int getMaxOpenTickets() { return maxOpenTickets; }
+    public List<Ticket> getAssignedTickets() { return assigned; }
+
+    public boolean canAcceptMore() {
+        long openCount = assigned.stream()
+            .filter(t -> t.getStatus() == Ticket.Status.OPEN || t.getStatus() == Ticket.Status.PENDING)
+            .count();
+        return openCount < maxOpenTickets;
+    }
+
+    public void assignTicket(Ticket t) { assigned.add(t); }
+    public void unassignTicket(Ticket t) { assigned.remove(t); }
+
+    @Override
+    public void display() {
+        System.out.println("Agent: " + id + " | " + name + " | maxOpen=" + maxOpenTickets +
+                           " | currentAssigned=" + assigned.size());
+    }
+}
+
+// Category
+class Category {
+    private String id;
+    private String name;
+    private int slaHours;
+    private String escalationRules;
+
+    public Category(String id, String name, int slaHours, String escalationRules) {
+        this.id = id;
+        this.name = name;
+        this.slaHours = slaHours;
+        this.escalationRules = escalationRules;
+    }
+
+    public String getId() { return id; }
+    public String getName() { return name; }
+    public int getSlaHours() { return slaHours; }
+    public String getEscalationRules() { return escalationRules; }
+
+    public void setName(String name) { this.name = name; }
+    public void setSlaHours(int slaHours) { this.slaHours = slaHours; }
+    public void setEscalationRules(String rules) { this.escalationRules = rules; }
+
+    public void display() {
+        System.out.println("Category: " + id + " | " + name +
+                           " | SLA=" + slaHours + "h | Escalation=" + escalationRules);
+    }
+}
+
+// Ticket
+class Ticket {
+    public enum Priority { LOW, MEDIUM, HIGH, CRITICAL }
+    public enum Status { NEW, OPEN, PENDING, RESOLVED, CLOSED }
+
+    private String ticketId;
+    private String subject;
+    private String description;
+    private Priority priority;
+    private Status status;
+    private User assignee;
+    private Category category;
+    private LocalDateTime createdAt;
+    private LocalDateTime slaDeadline;
+    private boolean slaBreached;
+    private List<String> attachments;
+
+    public Ticket(String ticketId, String subject, String description, Priority priority, Category category) {
+        this.ticketId = ticketId;
+        this.subject = subject;
+        this.description = description;
+        this.priority = priority;
+        this.status = Status.NEW;
+        this.assignee = null;
+        this.category = category;
+        this.createdAt = LocalDateTime.now();
+        this.slaBreached = false;
+        this.attachments = new ArrayList<>();
+        computeSlaDeadline();
+    }
+
+    public Ticket(String ticketId, String subject, String description, Priority priority,
+                  Category category, List<String> attachments) {
+        this(ticketId, subject, description, priority, category);
+        if (attachments != null) this.attachments.addAll(attachments);
+    }
+
+    private void computeSlaDeadline() {
+        if (category != null) {
+            slaDeadline = createdAt.plusHours(category.getSlaHours());
+        } else {
+            slaDeadline = createdAt.plusHours(72);
+        }
+    }
+
+    public String getTicketId() { return ticketId; }
+    public String getSubject() { return subject; }
+    public String getDescription() { return description; }
+    public Priority getPriority() { return priority; }
+    public Status getStatus() { return status; }
+    public User getAssignee() { return assignee; }
+    public Category getCategory() { return category; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public LocalDateTime getSlaDeadline() { return slaDeadline; }
+    public boolean isSlaBreached() { return slaBreached; }
+
+    public void setPriority(Priority p) { this.priority = p; }
+    protected void setStatus(Status s) { this.status = s; }
+    public void assignTo(User u) { this.assignee = u; }
+    public void addAttachment(String name) { this.attachments.add(name); }
+
+    public void display() {
+        System.out.println("[" + ticketId + "] " + subject + " | Priority: " + priority +
+                           " | Status: " + status +
+                           " | Assignee: " + (assignee==null ? "-" : assignee.getName()));
+        if (isSlaBreached())
+            System.out.println("  !!!! SLA BREACHED (Deadline: " + slaDeadline + ")");
+    }
+
+    public void checkSla() {
+        if (!slaBreached && LocalDateTime.now().isAfter(slaDeadline) &&
+            status != Status.RESOLVED && status != Status.CLOSED) {
+            slaBreached = true;
+        }
+    }
+}
+
+// Helpdesk Service
+class HelpdeskService {
+    private Map<String, User> users = new HashMap<>();
+    private Map<String, Ticket> tickets = new HashMap<>();
+    private Map<String, Category> categories = new HashMap<>();
+
+    public void registerUser(User u) { users.put(u.getId(), u); }
+    public User getUser(String id) { return users.get(id); }
+    public void addCategory(Category c) { categories.put(c.getId(), c); }
+    public Category getCategory(String id) { return categories.get(id); }
+
+    public Ticket openTicket(String ticketId, String subject, String description,
+                             Ticket.Priority priority, String categoryId, String customerId) {
+        Category c = categories.get(categoryId);
+        Ticket t = new Ticket(ticketId, subject, description, priority, c);
+        tickets.put(ticketId, t);
+        System.out.println("Ticket opened: " + ticketId);
+        return t;
+    }
+
+    public Ticket openTicket(String ticketId, String subject, String description,
+                             Ticket.Priority priority, String categoryId, String customerId,
+                             List<String> attachments) {
+        Category c = categories.get(categoryId);
+        Ticket t = new Ticket(ticketId, subject, description, priority, c, attachments);
+        tickets.put(ticketId, t);
+        System.out.println("Ticket opened (with attachments): " + ticketId);
+        return t;
+    }
+
+    public boolean assignAgent(String ticketId, String agentId) {
+        Ticket t = tickets.get(ticketId);
+        User u = users.get(agentId);
+        if (t == null) { System.out.println("Ticket not found: " + ticketId); return false; }
+        if (u == null || !(u instanceof Agent)) { System.out.println("Invalid agent: " + agentId); return false; }
+        Agent a = (Agent) u;
+        if (!a.canAcceptMore()) {
+            System.out.println("Agent " + a.getName() + " has reached workload limit.");
+            return false;
+        }
+        if (t.getAssignee() != null && t.getAssignee() instanceof Agent) {
+            Agent prev = (Agent) t.getAssignee();
+            prev.unassignTicket(t);
+        }
+        t.assignTo(a);
+        a.assignTicket(t);
+        a.incrementHandled();
+        if (t.getStatus() == Ticket.Status.NEW) t.setStatus(Ticket.Status.OPEN);
+        System.out.println("Assigned ticket " + ticketId + " to agent " + a.getName());
+        return true;
+    }
+
+    public boolean changeStatus(String ticketId, Ticket.Status newStatus) {
+        Ticket t = tickets.get(ticketId);
+        if (t == null) return false;
+        Ticket.Status cur = t.getStatus();
+        Map<Ticket.Status, List<Ticket.Status>> allowed = new HashMap<>();
+        allowed.put(Ticket.Status.NEW, Arrays.asList(Ticket.Status.OPEN));
+        allowed.put(Ticket.Status.OPEN, Arrays.asList(Ticket.Status.PENDING, Ticket.Status.RESOLVED, Ticket.Status.CLOSED));
+        allowed.put(Ticket.Status.PENDING, Arrays.asList(Ticket.Status.OPEN, Ticket.Status.RESOLVED));
+        allowed.put(Ticket.Status.RESOLVED, Arrays.asList(Ticket.Status.CLOSED, Ticket.Status.OPEN));
+        allowed.put(Ticket.Status.CLOSED, Collections.emptyList());
+        if (!allowed.getOrDefault(cur, Collections.emptyList()).contains(newStatus)) {
+            System.out.println("Transition not allowed: " + cur + " -> " + newStatus);
+            return false;
+        }
+        t.setStatus(newStatus);
+        t.checkSla();
+        System.out.println("Ticket " + ticketId + " status changed: " + cur + " -> " + newStatus);
+        return true;
+    }
+
+    public boolean changePriority(String ticketId, Ticket.Priority p) {
+        Ticket t = tickets.get(ticketId);
+        if (t == null) return false;
+        t.setPriority(p);
+        System.out.println("Ticket " + ticketId + " priority changed to " + p);
+        return true;
+    }
+
+    public List<Ticket> listByPriority(Ticket.Priority p) {
+        List<Ticket> out = new ArrayList<>();
+        for (Ticket t : tickets.values()) if (t.getPriority() == p) out.add(t);
+        out.sort(Comparator.comparing(Ticket::getCreatedAt));
+        return out;
+    }
+
+    public Map<String, List<Ticket>> ticketsByAgent() {
+        Map<String, List<Ticket>> map = new HashMap<>();
+        for (Ticket t : tickets.values()) {
+            User a = t.getAssignee();
+            String key = (a==null) ? "UNASSIGNED" : a.getName();
+            map.computeIfAbsent(key, k->new ArrayList<>()).add(t);
+        }
+        return map;
+    }
+
+    public Map<String, List<Ticket>> ticketsByCategory() {
+        Map<String, List<Ticket>> map = new HashMap<>();
+        for (Ticket t : tickets.values()) {
+            String key = (t.getCategory()==null) ? "UNCATEGORIZED" : t.getCategory().getName();
+            map.computeIfAbsent(key, k->new ArrayList<>()).add(t);
+        }
+        return map;
+    }
+
+    public List<Ticket> slaBreaches() {
+        List<Ticket> out = new ArrayList<>();
+        for (Ticket t : tickets.values()) {
+            t.checkSla();
+            if (t.isSlaBreached()) out.add(t);
+        }
+        return out;
+    }
+
+    public void printDashboard() {
+        System.out.println("---- DASHBOARD ----");
+        System.out.println("Total Users: " + users.size() +
+                           " | Total Tickets: " + tickets.size() +
+                           " | Categories: " + categories.size());
+        System.out.println("Tickets by Priority:");
+        for (Ticket.Priority p : Ticket.Priority.values()) {
+            System.out.println("  " + p + ": " + listByPriority(p).size());
+        }
+        System.out.println("SLA breaches: " + slaBreaches().size());
+    }
+
+    public void printTickets(Collection<Ticket> list) {
+        for (Ticket t : list) t.display();
+    }
+}
+
+// Main
+public class SchedulerAppMain {
+    public static void main(String[] args) {
+        HelpdeskService svc = new HelpdeskService();
+
+        // Categories
+        Category infra = new Category("C1", "Infrastructure", 24, "Escalate to L2 after 6h");
+        Category app = new Category("C2", "Application", 48, "Escalate to Dev after 24h");
+        svc.addCategory(infra);
+        svc.addCategory(app);
+
+        // Users
+        User cust1 = new User("U1", "Alice", "alice@example.com", "Customer");
+        Agent ag1 = new Agent("A1", "Bob", "bob@helpdesk.com", 3);
+        Agent ag2 = new Agent("A2", "Carol", "carol@helpdesk.com", 2);
+        svc.registerUser(cust1);
+        svc.registerUser(ag1);
+        svc.registerUser(ag2);
+
+        // Tickets
+        Ticket t1 = svc.openTicket("T1", "Server down", "Main server unreachable",
+                                   Ticket.Priority.CRITICAL, "C1", cust1.getId());
+        List<String> atts = Arrays.asList("error.log", "screenshot.png");
+        Ticket t2 = svc.openTicket("T2", "Login fails", "Users cannot login",
+                                   Ticket.Priority.HIGH, "C2", cust1.getId(), atts);
+        Ticket t3 = svc.openTicket("T3", "Password reset", "Forgot password",
+                                   Ticket.Priority.LOW, "C2", cust1.getId());
+
+        // Assign agents
+        svc.assignAgent("T1", "A1");
+        svc.assignAgent("T2", "A2");
+
+        // Status transitions
+        svc.changeStatus("T1", Ticket.Status.PENDING);
+        svc.changeStatus("T1", Ticket.Status.RESOLVED);
+        svc.changeStatus("T1", Ticket.Status.CLOSED);
+
+        svc.changeStatus("T2", Ticket.Status.PENDING);
+        svc.assignAgent("T2", "A1");
+        svc.changeStatus("T2", Ticket.Status.RESOLVED);
+        svc.changeStatus("T2", Ticket.Status.CLOSED);
+
+        // Unassigned ticket T3
+        // Simulated SLA breach for T4
+        svc.openTicket("T4", "Old issue", "Left unresolved",
+                       Ticket.Priority.MEDIUM, "C1", cust1.getId());
+        Ticket leaked = svc.listByPriority(Ticket.Priority.MEDIUM).stream()
+                           .filter(t->t.getTicketId().equals("T4"))
+                           .findFirst().orElse(null);
+        if (leaked!=null) {
+            try {
+                java.lang.reflect.Field f = Ticket.class.getDeclaredField("slaBreached");
+                f.setAccessible(true);
+                f.setBoolean(leaked, true);
+            } catch (Exception e) { }
+        }
+
+        // Reports
+        svc.printDashboard();
+        System.out.println("\nTickets by Agent:");
+        svc.ticketsByAgent().forEach((k,v)->{
+            System.out.println("Agent/Group: " + k + " -> " + v.size());
+            svc.printTickets(v);
+        });
+
+        System.out.println("\nTickets by Category:");
+        svc.ticketsByCategory().forEach((k,v)->{
+            System.out.println("Category: " + k + " -> " + v.size());
+            svc.printTickets(v);
+        });
+
+        System.out.println("\nSLA Breaches:");
+        svc.printTickets(svc.slaBreaches());
+
+        // Polymorphism demo
+        User poly = ag1;
+        poly.display();
+
+        System.out.println("\nList HIGH priority tickets:");
+        svc.printTickets(svc.listByPriority(Ticket.Priority.HIGH));
+
+        System.out.println("\nDemo complete.");
+    }
+}
+
+
+
+
